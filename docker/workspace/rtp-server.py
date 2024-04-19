@@ -30,9 +30,10 @@ def rot13(message):
    return new_message
 
 def checksum(m):
-    i = 0; j = len(m) // 2; n = ""; s = 0; o = 0
-    for k in range(len(m)):
+    i = 0; j = len(m) // 2; n = ""; s = 0; o = 0; ll = len(m) if len(m) % 2 == 0 else len(m) - 1
+    for k in range(ll):
         n += m[i] if k % 2 == 0 else m[j]; i += 1 if k % 2 == 0 else 0; j += 1 if k % 2 != 0 else 0
+    if len(m) % 2 != 0: n += m[len(m) - 1]
     for c in n:
         o %= 4
         s += ord(c) * 2 if o == 0 or o == 1 else ord(c) // 2; o += 1

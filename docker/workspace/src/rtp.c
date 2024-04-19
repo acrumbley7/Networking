@@ -10,8 +10,8 @@
 
 /**
  * PLESE ENTER YOUR INFORMATION BELOW TO RECEIVE MANUAL GRADING CREDITS
- * Name: Aliyah Crumbley
- * GTID: 903543166
+ * Name: 
+ * GTID: 
  * Spring 2024
  */
 
@@ -27,7 +27,7 @@ typedef struct message {
 /**
  * --------------------------------- PROBLEM 1 --------------------------------------
  * 
- * Convert the given buffer into an array of PACKETs and return the array.  The 
+ * Convert the given buffer into an array of PACKETs and returns the array.  The 
  * value of (*count) should be updated so that it contains the number of packets in 
  * the array. Keep in mind that if length % MAX_PAYLOAD_LENGTH != 0, you might have
  * to manually specify the payload_length.
@@ -45,28 +45,28 @@ packet_t *packetize(char *buffer, int length, int *count) {
     int num_packets = length / MAX_PAYLOAD_LENGTH;
     int overflow = length % MAX_PAYLOAD_LENGTH;
 
-    packet_t *packets = calloc(num_packets, sizeof(packet_t));
+    packet_t *packets = (packet_t*) calloc((size_t) num_packets, sizeof(packet_t));
 
     /* ----  FIXME  ---- */
     if (overflow != 0) {
         num_packets++;
     }
     for (int i = 0; i < num_packets; i++) {
-        packet_t *new_packet;
+        packet_t *new_packet = &packets[i];
         if (i != num_packets - 1) {
-            new_packet->checksum = checksum(buffer[i], MAX_PAYLOAD_LENGTH);
+            new_packet->checksum = checksum(&buffer[i], MAX_PAYLOAD_LENGTH);
             new_packet->payload_length = MAX_PAYLOAD_LENGTH;
             new_packet->type = DATA;
-            memccpy(new_packet->payload, buffer[i], MAX_PAYLOAD_LENGTH, sizeof(char));
+            memccpy(&(new_packet->payload), &buffer[i], MAX_PAYLOAD_LENGTH, sizeof(char));
         } else {
-            new_packet->checksum = checksum(buffer[i], overflow);
+            new_packet->checksum = checksum(&buffer[i], overflow);
             new_packet->payload_length = overflow;
             new_packet->type = LAST_DATA;
-            memccpy(new_packet->payload, buffer[i], overflow, sizeof(char));
+            memccpy(&(new_packet->payload), &buffer[i], overflow, sizeof(char));
         }
         packets[i] = *new_packet;
     }
-    count = num_packets;
+    *count = num_packets;
     return packets;
 }
 
@@ -97,7 +97,7 @@ int checksum(char *buffer, int length) {
     /* ----  FIXME  ---- */
     int sum = 0;
     for (int i = 0; i < length / 2; i++) {
-        int t = buffer[i] + buffer[length / 2];
+        int t = buffer[i] + buffer[(length / 2) + i];
         if (i % 2 == 0) {
             sum += (2 * t);
         } else {
@@ -115,7 +115,6 @@ int checksum(char *buffer, int length) {
 static void *rtp_recv_thread(void *void_ptr) {
 
     rtp_connection_t *connection = (rtp_connection_t *) void_ptr;
-    connection->ack = -1;
 
     do {
         message_t *message;
@@ -142,29 +141,29 @@ static void *rtp_recv_thread(void *void_ptr) {
             *    does not terminate
             * 4. If the payload matches, add the payload to the buffer
             */
-           if (packet.type = DATA || packet.type == LAST_DATA) {
+           if ((packet.type = DATA) || (packet.type == LAST_DATA)) {
                 if (checksum(packet.payload, packet.payload_length) != packet.checksum) {
-                    if (packet.type = LAST_DATA) {
+                    if ((packet.type = LAST_DATA)) {
                         packet.type = DATA;
                     }
-                    packet_t *nack;
+                    packet_t *nack = (packet_t*) malloc(sizeof(packet_t));
                     nack->type = NACK;
                     pthread_mutex_lock(&(connection->ack_mutex));
-                    net_send_packet(connection, nack);
+                    net_send_packet(connection->net_connection_handle, nack);
                     pthread_mutex_unlock(&(connection->ack_mutex));
                     // connection->ack = 1;
                     pthread_cond_signal(&(connection->ack_cond));
                 } else {
-                    packet_t *ack;
+                    packet_t *ack = (packet_t*) malloc(sizeof(packet_t));
                     ack->type = ACK;
                     pthread_mutex_lock(&(connection->ack_mutex));
-                    net_send_packet(connection, ack);
+                    net_send_packet(connection->net_connection_handle, ack);
                     pthread_mutex_unlock(&(connection->ack_mutex));
                     pthread_cond_signal(&(connection->ack_cond));
                     // connection->ack = 0;
-                    realloc(buffer, sizeof(packet.payload));
-                    int buff_offset = buffer_length * sizeof(packet.payload);
-                    memccpy(buffer[buff_offset], packet.payload, packet.payload_length, sizeof(char));
+                    buffer = (char*) realloc(buffer, sizeof(packet.payload));
+                    int buff_offset = buffer_length * (int) sizeof(packet.payload);
+                    memccpy(&buffer[buff_offset], packet.payload, packet.payload_length, sizeof(char));
                     buffer_length++;
                 }
            }
@@ -195,8 +194,12 @@ static void *rtp_recv_thread(void *void_ptr) {
             * 1. Add message to the received queue.
             * 2. Signal the client thread that a message has been received.
             */
-           
-
+           message = malloc(sizeof(packet.payload)); 
+           memccpy(&message, &buffer[buffer_length], packet.payload_length, sizeof(char));
+           pthread_mutex_lock(&(connection->recv_mutex));
+           queue_add(&connection->recv_queue, message);
+           pthread_mutex_unlock(&(connection->recv_mutex));
+           pthread_cond_signal(&(connection->recv_cond));
 
 
         } else free(buffer);
@@ -252,6 +255,18 @@ static void *rtp_send_thread(void *void_ptr) {
              *  3. If it was an ACK, continue sending the packets.
              *  4. If it was a NACK, resend the last packet
              */
+            pthread_mutex_lock(&(connection->recv_mutex));
+            while (connection->ack == -1) {
+                pthread_cond_wait(&(connection->recv_cond), &(connection->recv_mutex));
+            }
+            if (connection->ack != -1) {
+                if (connection->ack == 0) {
+                    break;
+                } else {
+                    i--;
+                }
+            }
+            pthread_mutex_unlock(&(connection->recv_mutex));
 
         }
 
