@@ -27,7 +27,7 @@ typedef struct message {
 /**
  * --------------------------------- PROBLEM 1 --------------------------------------
  * 
- * Convert the given buffer into an array of PACKETs and returns the array.  The 
+ * Convert the given buffer into an array of PACKETs and return the array.  The 
  * value of (*count) should be updated so that it contains the number of packets in 
  * the array. Keep in mind that if length % MAX_PAYLOAD_LENGTH != 0, you might have
  * to manually specify the payload_length.
@@ -42,11 +42,31 @@ typedef struct message {
  */
 packet_t *packetize(char *buffer, int length, int *count) {
 
-    packet_t *packets;
+    int num_packets = length / MAX_PAYLOAD_LENGTH;
+    int overflow = length % MAX_PAYLOAD_LENGTH;
+
+    packet_t *packets = calloc(num_packets, sizeof(packet_t));
 
     /* ----  FIXME  ---- */
-    
-
+    if (overflow != 0) {
+        num_packets++;
+    }
+    for (int i = 0; i < num_packets; i++) {
+        packet_t *new_packet;
+        if (i != num_packets - 1) {
+            new_packet->checksum = checksum(buffer[i], MAX_PAYLOAD_LENGTH);
+            new_packet->payload_length = MAX_PAYLOAD_LENGTH;
+            new_packet->type = DATA;
+            memccpy(new_packet->payload, buffer[i], MAX_PAYLOAD_LENGTH, sizeof(char));
+        } else {
+            new_packet->checksum = checksum(buffer[i], overflow);
+            new_packet->payload_length = overflow;
+            new_packet->type = LAST_DATA;
+            memccpy(new_packet->payload, buffer[i], overflow, sizeof(char));
+        }
+        packets[i] = *new_packet;
+    }
+    count = num_packets;
     return packets;
 }
 
@@ -75,7 +95,16 @@ packet_t *packetize(char *buffer, int length, int *count) {
 int checksum(char *buffer, int length) {
 
     /* ----  FIXME  ---- */
-    return 0;
+    int sum = 0;
+    for (int i = 0; i < length / 2; i++) {
+        int t = buffer[i] + buffer[length / 2];
+        if (i % 2 == 0) {
+            sum += (2 * t);
+        } else {
+            sum += (t / 2);
+        }
+    }
+    return sum;
 }
 
 
@@ -86,6 +115,7 @@ int checksum(char *buffer, int length) {
 static void *rtp_recv_thread(void *void_ptr) {
 
     rtp_connection_t *connection = (rtp_connection_t *) void_ptr;
+    connection->ack = -1;
 
     do {
         message_t *message;
@@ -112,7 +142,32 @@ static void *rtp_recv_thread(void *void_ptr) {
             *    does not terminate
             * 4. If the payload matches, add the payload to the buffer
             */
-
+           if (packet.type = DATA || packet.type == LAST_DATA) {
+                if (checksum(packet.payload, packet.payload_length) != packet.checksum) {
+                    if (packet.type = LAST_DATA) {
+                        packet.type = DATA;
+                    }
+                    packet_t *nack;
+                    nack->type = NACK;
+                    pthread_mutex_lock(&(connection->ack_mutex));
+                    net_send_packet(connection, nack);
+                    pthread_mutex_unlock(&(connection->ack_mutex));
+                    // connection->ack = 1;
+                    pthread_cond_signal(&(connection->ack_cond));
+                } else {
+                    packet_t *ack;
+                    ack->type = ACK;
+                    pthread_mutex_lock(&(connection->ack_mutex));
+                    net_send_packet(connection, ack);
+                    pthread_mutex_unlock(&(connection->ack_mutex));
+                    pthread_cond_signal(&(connection->ack_cond));
+                    // connection->ack = 0;
+                    realloc(buffer, sizeof(packet.payload));
+                    int buff_offset = buffer_length * sizeof(packet.payload);
+                    memccpy(buffer[buff_offset], packet.payload, packet.payload_length, sizeof(char));
+                    buffer_length++;
+                }
+           }
 
 
             /*
@@ -140,6 +195,7 @@ static void *rtp_recv_thread(void *void_ptr) {
             * 1. Add message to the received queue.
             * 2. Signal the client thread that a message has been received.
             */
+           
 
 
 
